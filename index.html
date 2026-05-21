@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鬼リピ 〜色々な連立方程式〜</title>
+    
+    <!-- Google Fonts: BIZ UDPGothic & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- CSS ファイルの読み込み -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- MathJax の設定と読み込み (先行読み込み) -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true
+            },
+            options: {
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            chtml: {
+                matchFontHeight: false
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <!-- canvas-confetti (紙吹雪) -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- ========================================== -->
+        <!-- 1. スタート画面 -->
+        <!-- ========================================== -->
+        <div id="screen-start" class="screen active">
+            <div class="header-logo">
+                <span class="logo-badge">中2 数学</span>
+                <h1 class="logo-title">鬼リピ</h1>
+                <p class="logo-subtitle">〜 色々な連立方程式 〜</p>
+            </div>
+
+            <div class="start-main-grid">
+                <!-- コース選択セクション -->
+                <div class="course-section">
+                    <h2 class="section-title">コースをえらぶ</h2>
+                    <div class="course-list">
+                        <button class="course-card btn-tap" id="btn-course-parentheses" onclick="app.selectCourse('parentheses')">
+                            <div class="course-icon">💬</div>
+                            <div class="course-info">
+                                <span class="course-badge">コース 1</span>
+                                <h3 class="course-name">カッコのある式 👑<span class="crown-icon" id="crown-parentheses"></span></h3>
+                                <p class="course-desc">分配法則でカッコを外して、同類項を整理してから解こう！</p>
+                                <div class="high-score">ベスト: <span id="score-parentheses">-</span>問正解</div>
+                            </div>
+                        </button>
+
+                        <button class="course-card btn-tap" id="btn-course-fraction-decimal" onclick="app.selectCourse('fraction_decimal')">
+                            <div class="course-icon">📊</div>
+                            <div class="course-info">
+                                <span class="course-badge">コース 2</span>
+                                <h3 class="course-name">分数と小数の式 👑<span class="crown-icon" id="crown-fraction_decimal"></span></h3>
+                                <p class="course-desc">両辺を何倍かして、すべての係数を整数に直してから解こう！</p>
+                                <div class="high-score">ベスト: <span id="score-fraction_decimal">-</span>問正解</div>
+                            </div>
+                        </button>
+
+                        <button class="course-card btn-tap" id="btn-course-abc" onclick="app.selectCourse('abc')">
+                            <div class="course-icon">⚖️</div>
+                            <div class="course-info">
+                                <span class="course-badge">コース 3</span>
+                                <h3 class="course-name">A = B = C の式 👑<span class="crown-icon" id="crown-abc"></span></h3>
+                                <p class="course-desc">自分で2つの等式を選んで、普通の連立方程式に直して解こう！</p>
+                                <div class="high-score">ベスト: <span id="score-abc">-</span>問正解</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 学習履歴セクション -->
+                <div class="history-section">
+                    <div class="history-header">
+                        <h2 class="section-title">がくしゅう履歴</h2>
+                        <button class="btn-text" id="btn-reset-history" onclick="app.resetHistory()">履歴クリア</button>
+                    </div>
+                    <div class="history-list-wrapper">
+                        <div class="history-empty" id="history-empty">履歴がまだありません。<br>ドリルを解いてみよう！</div>
+                        <ul class="history-list" id="history-list">
+                            <!-- JS で動的に生成 -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 2. ドリル画面 -->
+        <!-- ========================================== -->
+        <div id="screen-drill" class="screen">
+            <div class="drill-header">
+                <button class="btn-back btn-tap" onclick="app.quitDrill()">
+                    <span class="icon-back">◀</span> ホームへ
+                </button>
+                <div class="progress-container">
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="drill-progress-bar"></div>
+                    </div>
+                    <span class="progress-text" id="drill-progress-text">1 / 5 問</span>
+                </div>
+                <div class="score-badge">
+                    <span class="score-label">正答</span>
+                    <span class="score-value" id="drill-score">0</span>
+                </div>
+            </div>
+
+            <div class="drill-content-grid">
+                <!-- 上段：問題表示＋回答入力（コンパクトなバー） -->
+                <div class="question-answer-bar">
+                    <div class="question-box-compact">
+                        <span class="question-label">📝 この連立方程式を解きなさい</span>
+                        <div class="math-display tex2jax_process" id="equation-display">
+                            <!-- MathJax 数式が入る -->
+                        </div>
+                    </div>
+                    <div class="answer-box-compact">
+                        <div class="answer-row-layout">
+                            <div class="answer-row">
+                                <span class="var-label">\(x = \)</span>
+                                <div class="math-field-container" id="container-mf-x">
+                                    <math-field id="mf-x" virtual-keyboard-mode="off" inputmode="latin"></math-field>
+                                </div>
+                            </div>
+                            <div class="answer-row">
+                                <span class="var-label">\(y = \)</span>
+                                <div class="math-field-container" id="container-mf-y">
+                                    <math-field id="mf-y" virtual-keyboard-mode="off" inputmode="latin"></math-field>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="input-notice">※半角英数字で入力してね</div>
+                    </div>
+                </div>
+
+                <!-- 下段：作業エリア（手書きスペース ＋ キーボード・ヒント） -->
+                <div class="workspace-area">
+                    <!-- 手書き計算スペース -->
+                    <div class="scratchpad-container">
+                        <div class="scratchpad-header">
+                            <span class="scratchpad-title">✏️ 手書き計算スペース</span>
+                            <button class="btn-scratchpad-clear btn-tap" id="btn-clear-canvas" onclick="app.clearScratchpad()">全部消す</button>
+                        </div>
+                        <canvas id="scratchpad-canvas"></canvas>
+                    </div>
+
+                    <!-- ツール列：キーボード＋ヒント -->
+                    <div class="tools-column">
+                        <!-- 最小限のキーボード（分数・マイナス・削除・クリア・決定） -->
+                        <div class="custom-keyboard minimal-keyboard">
+                            <button class="key-btn key-fraction" onclick="app.pressKey('fraction')">分 数</button>
+                            <button class="key-btn key-minus" onclick="app.pressKey('-')">－</button>
+                            <button class="key-btn key-action" onclick="app.pressKey('backspace')">消す</button>
+                            <button class="key-btn key-action" onclick="app.pressKey('clear')">C</button>
+                            <button class="key-btn key-submit" id="btn-submit-answer" onclick="app.submitAnswer()">決定</button>
+                        </div>
+
+                        <!-- ヒントコントロール -->
+                        <div class="hint-panel">
+                            <div class="hint-header">
+                                <span class="hint-title-text">💡 ヒント</span>
+                                <span class="hint-badge" id="hint-counter">のこり 3</span>
+                            </div>
+                            <div class="hint-display" id="hint-display">
+                                わからないときはヒントを使ってみよう！
+                            </div>
+                            <button class="btn-hint btn-tap" id="btn-show-hint" onclick="app.showHint()">
+                                ヒントをみる
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 正誤判定オーバーレイ -->
+            <div id="judge-overlay" class="judge-overlay">
+                <div class="judge-content">
+                    <div class="judge-mark" id="judge-mark"></div>
+                    <div class="judge-message" id="judge-message">正解！</div>
+                    
+                    <!-- 誤答時の解説エリア -->
+                    <div class="incorrect-explanation" id="incorrect-explanation">
+                        <div class="exp-row">
+                            <span class="exp-label">あなたの解答:</span>
+                            <span class="exp-val" id="exp-your-ans"></span>
+                        </div>
+                        <div class="exp-row">
+                            <span class="exp-label">正しい答え:</span>
+                            <span class="exp-val" id="exp-correct-ans"></span>
+                        </div>
+                        <div class="exp-details-box scrollable" id="exp-details">
+                            <!-- 途中式の解説 -->
+                        </div>
+                    </div>
+
+                    <button class="btn-next-question btn-tap" id="btn-next-question" onclick="app.nextQuestion()">
+                        つぎの問題へ ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- 3. 結果画面 -->
+        <!-- ========================================== -->
+        <div id="screen-result" class="screen">
+            <div class="result-card">
+                <div class="result-header">
+                    <span class="result-badge" id="result-course-badge">コース 1 クリア</span>
+                    <h2 class="result-title" id="result-title">素晴らしい！合格です！💮</h2>
+                </div>
+
+                <div class="result-stats">
+                    <div class="stat-box">
+                        <span class="stat-label">といた問題</span>
+                        <span class="stat-value" id="result-total-cnt">5問</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">正解数</span>
+                        <span class="stat-value highlight" id="result-correct-cnt">5問</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">正解率</span>
+                        <span class="stat-value" id="result-accuracy">100%</span>
+                    </div>
+                </div>
+
+                <div class="result-actions">
+                    <button class="btn-action btn-retry btn-tap" onclick="app.retrySameCourse()">
+                        もういちど挑戦
+                    </button>
+                    <button class="btn-action btn-review btn-tap" id="btn-review-incorrect" onclick="app.startReviewMode()">
+                        まちがえた問題を復習
+                    </button>
+                    <button class="btn-action btn-home btn-tap" onclick="app.goHome()">
+                        ホームに戻る
+                    </button>
+                </div>
+
+                <!-- 全問振り返り -->
+                <div class="review-section">
+                    <h3 class="review-title">今回のドリルをふり返る</h3>
+                    <div class="review-list-wrapper scrollable">
+                        <table class="review-table">
+                            <thead>
+                                <tr>
+                                    <th>No</th>
+                                    <th>問題</th>
+                                    <th>あなたの解答</th>
+                                    <th>正しい答え</th>
+                                    <th>結果</th>
+                                </tr>
+                            </thead>
+                            <tbody id="review-list-body">
+                                <!-- JS で動的に追加 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MathLive ライブラリの読み込み (DOM構築後のために body の最後で読み込む。競合バグを回避) -->
+    <script src="https://unpkg.com/mathlive@0.98.4/dist/mathlive.min.js"></script>
+    
+    <!-- アプリ制御ファイルの読み込み -->
+    <script src="questions.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
