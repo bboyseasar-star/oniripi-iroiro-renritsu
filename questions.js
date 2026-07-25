@@ -105,16 +105,20 @@ const QuestionGenerator = {
             // ② dx + e(fx + gy) = h
             
             // 式①の生成
-            const a = getRandomNonZeroInt(-4, 4);
-            const b = getRandomNonZeroInt(-4, 4);
+            let a, b, d, e, f, g;
+            // 整理後の2式が平行にならないようにする（行列式 ≠ 0）。
+            do {
+                a = getRandomNonZeroInt(-4, 4);
+                b = getRandomNonZeroInt(-4, 4);
+                d = getRandomInt(-3, 3); // 0もあり
+                e = getRandomNonZeroInt(-3, 3);
+                f = getRandomNonZeroInt(-2, 2);
+                g = getRandomNonZeroInt(-2, 2);
+            } while (a * (e * g) - b * (d + e * f) === 0);
             const c = a * x + b * y;
             const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
 
             // 式②の生成
-            const d = getRandomInt(-3, 3); // 0もあり
-            const e = getRandomNonZeroInt(-3, 3);
-            const f = getRandomNonZeroInt(-2, 2);
-            const g = getRandomNonZeroInt(-2, 2);
             const h = d * x + e * (f * x + g * y);
             
             // ②の表示: dx + e(fx + gy) = h (d=0の場合は xの項なし)
@@ -164,14 +168,18 @@ const QuestionGenerator = {
             // ② x = d(ey - f) + g (代入法に適した形)
             
             // 式①の生成
-            const a = getRandomNonZeroInt(-3, 3);
-            const b = getRandomNonZeroInt(-3, 3);
+            let a, b, d, e;
+            // ① と、整理後の②（x - de y = 定数）が一意に交わるようにする。
+            do {
+                a = getRandomNonZeroInt(-3, 3);
+                b = getRandomNonZeroInt(-3, 3);
+                d = getRandomNonZeroInt(-3, 3);
+                e = getRandomNonZeroInt(-2, 2);
+            } while (-a * d * e - b === 0);
             const c = a * x + b * y;
             const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
 
             // 式②の生成
-            const d = getRandomNonZeroInt(-3, 3);
-            const e = getRandomNonZeroInt(-2, 2);
             const f = getRandomInt(-5, 5); // 0もあり
             const g = x - d * (e * y - f); // gを逆算してxに合わせる
             
@@ -199,7 +207,7 @@ const QuestionGenerator = {
             const eq2ExpandedStr = `x = ${formatTerm(step2ExpandedCoefY, "y", true)} ${step2Const >= 0 ? `+ ${step2Const}` : `- ${Math.abs(step2Const)}`}`;
 
             hints = [
-                `下の式のかっこを外して、\\(x = \\dots\\) の形を整理しよう！<br>かっこを外すと：<br>\\(x = ${d * e}y ${step2Const >= 0 ? `+ ${d * -f}` : `- ${Math.abs(d * -f)}`} ${gTerm !== "" ? gTerm : ""}\\)<br>整理すると \\(${eq2ExpandedStr}\\) になるよ。`,
+                `下の式のかっこを外して、\\(x = \\dots\\) の形を整理しよう！<br>かっこを外すと：<br>\\(x = ${d * e}y ${d * -f >= 0 ? `+ ${d * -f}` : `- ${Math.abs(d * -f)}`} ${gTerm !== "" ? gTerm : ""}\\)<br>整理すると \\(${eq2ExpandedStr}\\) になるよ。`,
                 `整理した \\(x = ${eq2ExpandedStr.split("=")[1]}\\) を上の式の \\(x\\) に代入（代入法）して解こう！<br>\\(${a !== 1 ? a : ""}(${eq2ExpandedStr.split("=")[1]}) ${formatTerm(b, "y")} = ${c}\\)<br>これで \\(y\\) だけの方程式になるね。`,
                 `⚠️ 次のヒントは「答え」になるよ！<br>代入したあとの計算をゆっくり解き直してみよう。`
             ];
@@ -251,11 +259,6 @@ const QuestionGenerator = {
             // ① ax + by = c (普通の式)
             // ② (d/p)x + (e/q)y = f (分数を含む式)
             
-            const a = getRandomNonZeroInt(-3, 3);
-            const b = getRandomNonZeroInt(-3, 3);
-            const c = a * x + b * y;
-            const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
-
             // 分母 p, q を 2, 3, 4, 6 などから選ぶ
             const denominators = [2, 3, 4, 5, 6];
             const p = denominators[getRandomInt(0, denominators.length - 1)];
@@ -265,9 +268,17 @@ const QuestionGenerator = {
                 q = denominators[(denominators.indexOf(p) + 1) % denominators.length];
             }
 
-            const d = getRandomNonZeroInt(-3, 3);
-            const e = getRandomNonZeroInt(-3, 3);
-            
+            let a, b, d, e;
+            // 分母を払った後の2式が平行にならないようにする。
+            do {
+                a = getRandomNonZeroInt(-3, 3);
+                b = getRandomNonZeroInt(-3, 3);
+                d = getRandomNonZeroInt(-3, 3);
+                e = getRandomNonZeroInt(-3, 3);
+            } while (a * e * p - b * d * q === 0);
+            const c = a * x + b * y;
+            const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
+
             // f = (d*x)/p + (e*y)/q を分数計算
             const numF = d * x * q + e * y * p;
             const denF = p * q;
@@ -326,16 +337,20 @@ const QuestionGenerator = {
             // ① 0.ax + 0.by = c
             // ② dx + ey = f
             
-            const a = getRandomNonZeroInt(-8, 8);
-            let b = getRandomNonZeroInt(-8, 8);
-            if (a === b) b = -a; // 係数をバラす
+            let a, b, d, e;
+            // 10倍後の上の式と下の式が一意に交わるようにする。
+            do {
+                a = getRandomNonZeroInt(-8, 8);
+                b = getRandomNonZeroInt(-8, 8);
+                if (a === b) b = -a; // 係数をバラす
+                d = getRandomNonZeroInt(-4, 4);
+                e = getRandomNonZeroInt(-4, 4);
+            } while (a * e - b * d === 0);
             
             // c = 0.a * x + 0.b * y (小数第1位まで)
             const cVal = (a * x + b * y) / 10;
             const eq1Str = `${(a/10).toFixed(1)}x ${(b/10) >= 0 ? `+ ${(b/10).toFixed(1)}` : `- ${Math.abs(b/10).toFixed(1)}`}y = ${cVal.toFixed(1)}`;
 
-            const d = getRandomNonZeroInt(-4, 4);
-            const e = getRandomNonZeroInt(-4, 4);
             const f = d * x + e * y;
             const eq2Str = `${formatTerm(d, "x", true)} ${formatTerm(e, "y")} = ${f}`;
 
@@ -393,41 +408,17 @@ const QuestionGenerator = {
             // パターン1: Ax + By = Cx + Dy = E
             // 例: 2x + y = x + 3y = 5
             
-            const a = getRandomNonZeroInt(-3, 3);
-            const b = getRandomNonZeroInt(-3, 3);
-            const eVal = a * x + b * y; // 定数項 E
-            
-            // C を選び、D = (E - C*x)/y が整数になるように決定
-            let c = 0;
-            let d = 0;
-            let found = false;
-            
-            // 無限ループ防止用のカウンター
-            let attempts = 0;
-            while (!found && attempts < 50) {
-                c = getRandomNonZeroInt(-3, 3);
-                if (c === a) continue; // 同じ係数は避ける
-                
-                const numerator = eVal - c * x;
-                if (numerator % y === 0) {
-                    d = numerator / y;
-                    if (d !== b && d !== 0) {
-                        found = true;
-                    }
-                }
-                attempts++;
-            }
-            
-            // もし見つからなかった場合のデフォルト（手動フォールバック）
-            if (!found) {
-                c = a + 1;
-                d = (eVal - c * x) / y; // 確実に割り切れるとは限らないが、最後の手段として再決定
-                x = 2; y = 1; // 綺麗な値に固定
-                // eVal = a*2 + b*1, c*2 + d*1 = eVal => d = eVal - 2c
-                const fixedE = a * 2 + b * 1;
-                c = a - 1;
-                d = fixedE - 2 * c;
-            }
+            let a, b, eVal;
+            // eVal が 0 だと同じ解を通る2本の式が比例してしまうため、作り直す。
+            do {
+                a = getRandomNonZeroInt(-3, 3);
+                b = getRandomNonZeroInt(-3, 3);
+                eVal = a * x + b * y;
+            } while (eVal === 0);
+            // (c, d) = (a + y, b - x) とすれば、同じ (x, y) を通り、
+            // 行列式は -eVal となるため必ず一意解になる。
+            const c = a + y;
+            const d = b - x;
 
             const termAStr = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")}`;
             const termBStr = `${formatTerm(c, "x", true)} ${formatTerm(d, "y")}`;
@@ -468,7 +459,9 @@ const QuestionGenerator = {
             // 式3: Gx + Hy + I = V => I = V - (Gx + Hy)
             let g = getRandomNonZeroInt(-2, 2);
             let h = getRandomNonZeroInt(-2, 2);
-            while ((g === a && h === b) || (g === d && h === e)) {
+            // A=B と B=C の2式が平行にならない組を選ぶ。
+            while ((g === a && h === b) || (g === d && h === e) ||
+                   (a - d) * (e - h) - (b - e) * (d - g) === 0) {
                 g = getRandomNonZeroInt(-2, 2);
                 h = getRandomNonZeroInt(-2, 2);
             }

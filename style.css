@@ -151,6 +151,9 @@ html, body {
     min-height: 0; /* 子の溢れ防止 */
     height: calc(100vh - 160px);
 }
+.legal-links { flex-shrink: 0; margin: 10px 0 0; text-align: center; font-size: .78rem; }
+.legal-links a { color: var(--text-muted); text-underline-offset: 2px; }
+.legal-links span { margin: 0 8px; color: var(--text-muted); }
 
 .section-title {
     font-size: 1.2rem;

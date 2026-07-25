@@ -47,6 +47,30 @@ class App {
         document.body.addEventListener('click', () => this.initAudio(), { once: true });
     }
 
+    // MathJax の読み込み完了前でも画面操作を止めないための安全な再描画
+    safeTypeset(onComplete = null, attempts = 0) {
+        const done = () => {
+            if (typeof onComplete === "function") onComplete();
+        };
+        const mathJax = window.MathJax;
+
+        if (mathJax && typeof mathJax.typesetPromise === "function") {
+            try {
+                Promise.resolve(mathJax.typesetPromise())
+                    .catch(error => console.warn("MathJax の数式描画に失敗しました:", error))
+                    .then(done);
+            } catch (error) {
+                console.warn("MathJax の数式描画に失敗しました:", error);
+                done();
+            }
+        } else if (attempts < 100) {
+            setTimeout(() => this.safeTypeset(onComplete, attempts + 1), 50);
+        } else {
+            console.warn("MathJax の読み込みを待機しましたが、数式描画を開始できませんでした。");
+            done();
+        }
+    }
+
     // AudioContext の初期化
     initAudio() {
         try {
@@ -300,7 +324,7 @@ class App {
         document.getElementById("judge-overlay").classList.remove("active");
 
         // MathJaxの再描画
-        MathJax.typesetPromise().then(() => {
+        this.safeTypeset(() => {
             // 描画完了後にxの入力欄にフォーカスをあてる
             setTimeout(() => {
                 mfx.focus();
@@ -401,9 +425,11 @@ class App {
                 msg.style.color = "var(--error)";
             }
 
-            // 履歴用に間違えた問題をストック (通常モード時のみ)
+            // 通常時は復習リストへ、復習中は正解するまで出題列の末尾へ戻す。
             if (!this.isReviewMode) {
                 this.incorrectQuestions.push(q);
+            } else {
+                this.questions.push(this.cloneQuestionForReview(q));
             }
 
             // 誤答解説の描画
@@ -419,7 +445,7 @@ class App {
             this.playIncorrectSound();
 
             // 解説の中に含まれる LaTeX 数式の再描画
-            MathJax.typesetPromise().then(() => {
+            this.safeTypeset(() => {
                 document.getElementById("btn-next-question").focus();
             });
         }
@@ -528,7 +554,7 @@ class App {
         }
 
         // 数式再描画
-        MathJax.typesetPromise();
+        this.safeTypeset();
     }
 
     // ----------------------------------------------------
@@ -634,7 +660,7 @@ class App {
         });
 
         // 数式再描画
-        MathJax.typesetPromise();
+        this.safeTypeset();
     }
 
     // ----------------------------------------------------
@@ -645,24 +671,26 @@ class App {
 
         this.isReviewMode = true;
         
-        // 間違えた問題をディープコピーして復習用に再セット
-        this.questions = this.incorrectQuestions.map(q => {
-            return {
-                id: q.id,
-                type: q.type,
-                equationLatex: q.equationLatex,
-                answers: { x: q.answers.x, y: q.answers.y },
-                displayAnswers: { x: q.displayAnswers.x, y: q.displayAnswers.y },
-                hints: [...q.hints],
-                explanation: q.explanation
-            };
-        });
+        // 間違えた問題を、解答・ギブアップ状態を除いて復習用に再セット
+        this.questions = this.incorrectQuestions.map(q => this.cloneQuestionForReview(q));
 
         this.currentIndex = 0;
         this.score = 0;
-        this.incorrectQuestions = []; // 復習モードの中でさらに間違えた場合は再ストックしない（クリア前提）
+        this.incorrectQuestions = [];
 
         this.startDrill();
+    }
+
+    cloneQuestionForReview(q) {
+        return {
+            id: q.id,
+            type: q.type,
+            equationLatex: q.equationLatex,
+            answers: { x: q.answers.x, y: q.answers.y },
+            displayAnswers: { x: q.displayAnswers.x, y: q.displayAnswers.y },
+            hints: [...q.hints],
+            explanation: q.explanation
+        };
     }
 
     retrySameCourse() {
