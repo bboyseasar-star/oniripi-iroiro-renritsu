@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
     
     <!-- CSS ファイルの読み込み -->
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261018b">
 
     <!-- MathJax の設定と読み込み (先行読み込み) -->
     <script>
@@ -135,17 +135,17 @@
                             <div class="answer-row">
                                 <span class="var-label">\(x = \)</span>
                                 <div class="math-field-container" id="container-mf-x">
-                                    <math-field id="mf-x" virtual-keyboard-mode="off" inputmode="latin"></math-field>
+                                    <math-field id="mf-x"></math-field>
                                 </div>
                             </div>
                             <div class="answer-row">
                                 <span class="var-label">\(y = \)</span>
                                 <div class="math-field-container" id="container-mf-y">
-                                    <math-field id="mf-y" virtual-keyboard-mode="off" inputmode="latin"></math-field>
+                                    <math-field id="mf-y"></math-field>
                                 </div>
                             </div>
                         </div>
-                        <div class="input-notice">※半角英数字で入力してね</div>
+                        <div class="input-notice">※x と y の値を入力してね（分数は約分して書こう）</div>
                     </div>
                 </div>
 
@@ -193,6 +193,7 @@
                 <div class="judge-content">
                     <div class="judge-mark" id="judge-mark"></div>
                     <div class="judge-message" id="judge-message">正解！</div>
+                    <div class="judge-grade-msg" id="judge-grade-msg" style="display:none"></div>
                     
                     <!-- 誤答時の解説エリア -->
                     <div class="incorrect-explanation" id="incorrect-explanation">
@@ -281,7 +282,8 @@
     <script src="https://unpkg.com/mathlive@0.98.4/dist/mathlive.min.js"></script>
     
     <!-- アプリ制御ファイルの読み込み -->
-    <script src="questions.js"></script>
-    <script src="main.js"></script>
+    <script src="grader-core.js?v=20261018b"></script>
+    <script src="questions.js?v=20261018b"></script>
+    <script src="main.js?v=20261018b"></script>
 </body>
 </html>

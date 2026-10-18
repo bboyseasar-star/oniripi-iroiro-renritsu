@@ -78,6 +78,42 @@ function formatSign(val) {
     return val >= 0 ? `+ ${val}` : `- ${Math.abs(val)}`;
 }
 
+// 文字式を項の並びから組み立てる（係数 0 の項は書かない、1x → x、-1x → -x、先頭の + は書かない）
+// terms: [[係数, 文字]]。文字が '' なら定数項。すべて 0 なら "0"
+function linExpr(terms) {
+    let s = "";
+    for (const [c, v] of terms) {
+        if (c === 0) continue;
+        const abs = Math.abs(c);
+        const body = v ? (abs === 1 ? v : abs + v) : String(abs);
+        if (s === "") s = (c < 0 ? "-" : "") + body;
+        else s += (c < 0 ? " - " : " + ") + body;
+    }
+    return s === "" ? "0" : s;
+}
+
+// 係数 × (かっこ) の表示（1 は省く、-1 は - だけ）
+function coefParen(coef, inner) {
+    // かっこの中が1つの項（y、-2y、5 など）で係数が 1 なら、かっこは付けない（(y) + y → y + y）
+    const single = /^-?\d*[xy]?$/.test(String(inner).replace(/\s+/g, ""));
+    if (coef === 1 && single) return inner;
+    if (coef === -1 && single && !String(inner).startsWith("-")) return `-${inner}`;
+    if (coef === 1) return `(${inner})`;
+    if (coef === -1) return `-(${inner})`;
+    return `${coef}(${inner})`;
+}
+
+// 約分済みの分数係数の項（分母は 2 以上を前提）。isFirst でなければ正の項に + を付ける
+function fracTerm(num, den, variable, isFirst) {
+    const sign = num < 0 ? "-" : (isFirst ? "" : "+");
+    return `${sign}\\frac{${Math.abs(num)}}{${den}}${variable}`;
+}
+
+// 小数第1位までの数を、余分な 0 を付けずに書く（1.0 → 1、0.0 → 0）
+function formatDecimal(v) {
+    return String(Number(v.toFixed(1)));
+}
+
 // 連立方程式の LaTeX を生成する
 function makeSystemLatex(eq1, eq2) {
     return `\\begin{cases} ${eq1} \\\\ ${eq2} \\end{cases}`;
@@ -116,7 +152,7 @@ const QuestionGenerator = {
                 g = getRandomNonZeroInt(-2, 2);
             } while (a * (e * g) - b * (d + e * f) === 0);
             const c = a * x + b * y;
-            const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
+            const eq1Str = `${linExpr([[a, "x"], [b, "y"]])} = ${c}`;
 
             // 式②の生成
             const h = d * x + e * (f * x + g * y);
@@ -145,10 +181,12 @@ const QuestionGenerator = {
             // 解説の作成
             const step2ExpandedCoefX = d + e * f;
             const step2ExpandedCoefY = e * g;
-            const eq2ExpandedStr = `${formatTerm(step2ExpandedCoefX, "x", true)} ${formatTerm(step2ExpandedCoefY, "y")} = ${h}`;
+            const eq2ExpandedStr = `${linExpr([[step2ExpandedCoefX, "x"], [step2ExpandedCoefY, "y"]])} = ${h}`;
+            // かっこを外しただけ（同類項をまとめる前）の左辺
+            const eq2OpenedLhs = linExpr([[d, "x"], [e * f, "x"], [e * g, "y"]]);
 
             hints = [
-                `まずはカッコがあるほうの式を整理しよう！<br>下の式のかっこを外すと：<br>\\(${dTerm} ${formatSign(e * f)}x ${formatSign(e * g)}y = ${h}\\)<br>同類項をまとめると、\\(${eq2ExpandedStr}\\) になるよ。`,
+                `まずはカッコがあるほうの式を整理しよう！<br>下の式のかっこを外すと：<br>\\(${eq2OpenedLhs} = ${h}\\)<br>同類項をまとめると、\\(${eq2ExpandedStr}\\) になるよ。`,
                 `整理した2つの式で連立方程式を解こう！<br>\\(\\begin{cases} ${eq1Str} \\\\ ${eq2ExpandedStr} \\end{cases}\\)<br>加減法（または代入法）で \\(x\\) か \\(y\\) のどちらかを消去して解いてみてね。`,
                 `⚠️ 次のヒントは「答え」になるよ！<br>もう一度計算を確認してみよう。`
             ];
@@ -156,7 +194,7 @@ const QuestionGenerator = {
             explanation = `<b>【解き方の手順】</b><br>` +
                 `1. カッコのある式を外して同類項を整理します。<br>` +
                 `　　\\(${eq2Str}\\)<br>` +
-                `　　\\(${dTerm} ${formatSign(e * f)}x ${formatSign(e * g)}y = ${h}\\)<br>` +
+                `　　\\(${eq2OpenedLhs} = ${h}\\)<br>` +
                 `　　\\(${eq2ExpandedStr}\\) ── ②'<br><br>` +
                 `2. 整理した連立方程式を解きます。<br>` +
                 `　　\\(\\begin{cases} ${eq1Str} ── ① \\\\ ${eq2ExpandedStr} ── ②' \\end{cases}\\)<br>` +
@@ -177,10 +215,10 @@ const QuestionGenerator = {
                 e = getRandomNonZeroInt(-2, 2);
             } while (-a * d * e - b === 0);
             const c = a * x + b * y;
-            const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
+            const eq1Str = `${linExpr([[a, "x"], [b, "y"]])} = ${c}`;
 
-            // 式②の生成
-            const f = getRandomInt(-5, 5); // 0もあり
+            // 式②の生成（f が 0 だと「(y - 0)」になるので 0 は使わない）
+            const f = getRandomNonZeroInt(-5, 5);
             const g = x - d * (e * y - f); // gを逆算してxに合わせる
             
             // ②の表示: x = d(ey - f) + g
@@ -204,11 +242,16 @@ const QuestionGenerator = {
             // カッコを展開した式
             const step2ExpandedCoefY = d * e;
             const step2Const = -d * f + g;
-            const eq2ExpandedStr = `x = ${formatTerm(step2ExpandedCoefY, "y", true)} ${step2Const >= 0 ? `+ ${step2Const}` : `- ${Math.abs(step2Const)}`}`;
+            const rhs2 = linExpr([[step2ExpandedCoefY, "y"], [step2Const, ""]]);
+            const eq2ExpandedStr = `x = ${rhs2}`;
+            const eq2OpenedRhs = linExpr([[d * e, "y"], [-d * f, ""], [g, ""]]);
+            const de = d * e;
+            const substStr = (de === 1 ? `${y < 0 ? `(${y})` : y}` : de === -1 ? (y < 0 ? `-(${y})` : `-${y}`) : `${de} \\times (${y})`) +
+                (step2Const === 0 ? "" : step2Const > 0 ? ` + ${step2Const}` : ` - ${Math.abs(step2Const)}`);
 
             hints = [
-                `下の式のかっこを外して、\\(x = \\dots\\) の形を整理しよう！<br>かっこを外すと：<br>\\(x = ${d * e}y ${d * -f >= 0 ? `+ ${d * -f}` : `- ${Math.abs(d * -f)}`} ${gTerm !== "" ? gTerm : ""}\\)<br>整理すると \\(${eq2ExpandedStr}\\) になるよ。`,
-                `整理した \\(x = ${eq2ExpandedStr.split("=")[1]}\\) を上の式の \\(x\\) に代入（代入法）して解こう！<br>\\(${a !== 1 ? a : ""}(${eq2ExpandedStr.split("=")[1]}) ${formatTerm(b, "y")} = ${c}\\)<br>これで \\(y\\) だけの方程式になるね。`,
+                `下の式のかっこを外して、\\(x = \\dots\\) の形を整理しよう！<br>かっこを外すと：<br>\\(x = ${eq2OpenedRhs}\\)<br>整理すると \\(${eq2ExpandedStr}\\) になるよ。`,
+                `整理した \\(x = ${rhs2}\\) を上の式の \\(x\\) に代入（代入法）して解こう！<br>\\(${coefParen(a, rhs2)} ${formatTerm(b, "y")} = ${c}\\)<br>これで \\(y\\) だけの方程式になるね。`,
                 `⚠️ 次のヒントは「答え」になるよ！<br>代入したあとの計算をゆっくり解き直してみよう。`
             ];
 
@@ -217,10 +260,10 @@ const QuestionGenerator = {
                 `　　\\(${eq2Str}\\)<br>` +
                 `　　\\(${eq2ExpandedStr}\\) ── ②'<br><br>` +
                 `2. ②' を ① \\(${eq1Str}\\) の \\(x\\) に代入します。<br>` +
-                `　　\\(${a}(${eq2ExpandedStr.split("=")[1]}) ${formatTerm(b, "y")} = ${c}\\)<br>` +
+                `　　\\(${coefParen(a, rhs2)} ${formatTerm(b, "y")} = ${c}\\)<br>` +
                 `　　これを解くと \\(y = ${y}\\) となります。<br><br>` +
                 `3. \\(y = ${y}\\) を ②' に代入して \\(x\\) を求めます。<br>` +
-                `　　\\(x = ${d * e} \\times (${y}) ${step2Const >= 0 ? `+ ${step2Const}` : `- ${Math.abs(step2Const)}`} = ${x}\\)<br>` +
+                `　　\\(x = ${substStr} = ${x}\\)<br>` +
                 `　　よって、<b>\\(x = ${x}\\), \\(y = ${y}\\)</b> となります。`;
         }
 
@@ -275,33 +318,22 @@ const QuestionGenerator = {
                 b = getRandomNonZeroInt(-3, 3);
                 d = getRandomNonZeroInt(-3, 3);
                 e = getRandomNonZeroInt(-3, 3);
-            } while (a * e * p - b * d * q === 0);
+                // 係数が整数になる分数（\\frac{2}{2} など）は分数の式にならないので選ばない
+            } while (a * e * p - b * d * q === 0 || d % p === 0 || e % q === 0);
             const c = a * x + b * y;
-            const eq1Str = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${c}`;
+            const eq1Str = `${linExpr([[a, "x"], [b, "y"]])} = ${c}`;
+            // 係数は約分して表示する（\\frac{2}{4} → \\frac{1}{2}）。値は変わらない
+            const gx = gcd(d, p), gy = gcd(e, q);
+            const dR = d / gx, pR = p / gx, eR = e / gy, qR = q / gy;
 
             // f = (d*x)/p + (e*y)/q を分数計算
             const numF = d * x * q + e * y * p;
             const denF = p * q;
             const fLatex = formatFraction(numF, denF);
 
-            // 表示用の分数式
-            const xFrac = formatFraction(d, p);
-            const yFrac = formatFraction(e, q);
-            
-            // xFrac や yFrac にマイナスがある場合のフォーマット
-            let xTerm = "";
-            if (xFrac.startsWith("-")) {
-                xTerm = `-\\frac{${Math.abs(d)}}{${p}}x`;
-            } else {
-                xTerm = `\\frac{${d}}{${p}}x`;
-            }
-
-            let yTerm = "";
-            if (yFrac.startsWith("-")) {
-                yTerm = `-\\frac{${Math.abs(e)}}{${q}}y`;
-            } else {
-                yTerm = `+\\frac{${e}}{${q}}y`;
-            }
+            // 表示用の分数式（約分済み）
+            const xTerm = fracTerm(dR, pR, "x", true);
+            const yTerm = fracTerm(eR, qR, "y", false);
 
             const eq2Str = `${xTerm} ${yTerm} = ${fLatex}`;
 
@@ -309,23 +341,24 @@ const QuestionGenerator = {
             eq2 = eq2Str;
 
             // 最小公倍数
-            const commonMult = lcm(p, q);
+            const commonMult = lcm(pR, qR);
             // 両辺を commonMult 倍したときの整数係数
-            const step2CoefX = (d * commonMult) / p;
-            const step2CoefY = (e * commonMult) / q;
+            const step2CoefX = (dR * commonMult) / pR;
+            const step2CoefY = (eR * commonMult) / qR;
+            const denomText = pR === qR ? "分母の" : `分母の ${pR} と ${qR} の最小公倍数である`;
             // 右辺の計算
             const step2Const = (numF * commonMult) / denF; // 分数同士を掛けるので確実に整数になる
 
-            const eq2IntegerStr = `${formatTerm(step2CoefX, "x", true)} ${formatTerm(step2CoefY, "y")} = ${step2Const}`;
+            const eq2IntegerStr = `${linExpr([[step2CoefX, "x"], [step2CoefY, "y"]])} = ${step2Const}`;
 
             hints = [
-                `分数がある式（下の式）の分母を払って、整数だけの式に直そう！<br>分母の ${p} と ${q} の最小公倍数である <b>${commonMult}</b> を、式の両辺に掛け算してみてね。`,
+                `分数がある式（下の式）の分母を払って、整数だけの式に直そう！<br>${denomText} <b>${commonMult}</b> を、式の両辺に掛け算してみてね。`,
                 `下の式の両辺に <b>${commonMult}</b> を掛けて整理すると：<br>\\(${eq2IntegerStr}\\)<br>これで普通の連立方程式 \\(\\begin{cases} ${eq1Str} \\\\ ${eq2IntegerStr} \\end{cases}\\) になるよ！`,
                 `⚠️ 次のヒントは「答え」になるよ！<br>分数を整数に直したあとの加減法の計算を見直してみよう。`
             ];
 
             explanation = `<b>【解き方の手順】</b><br>` +
-                `1. 分数を含む下の式の両辺に、分母 ${p} と ${q} の最小公倍数である <b>${commonMult}</b> を掛けて分母を払います。<br>` +
+                `1. 分数を含む下の式の両辺に、${denomText} <b>${commonMult}</b> を掛けて分母を払います。<br>` +
                 `　　\\(\\left(${xTerm} ${yTerm}\\right) \\times ${commonMult} = ${fLatex} \\times ${commonMult}\\)<br>` +
                 `　　\\(${eq2IntegerStr}\\) ── ②'<br><br>` +
                 `2. 整数になった連立方程式を解きます。<br>` +
@@ -349,15 +382,16 @@ const QuestionGenerator = {
             
             // c = 0.a * x + 0.b * y (小数第1位まで)
             const cVal = (a * x + b * y) / 10;
-            const eq1Str = `${(a/10).toFixed(1)}x ${(b/10) >= 0 ? `+ ${(b/10).toFixed(1)}` : `- ${Math.abs(b/10).toFixed(1)}`}y = ${cVal.toFixed(1)}`;
+            const lhs1 = `${(a/10).toFixed(1)}x ${(b/10) >= 0 ? `+ ${(b/10).toFixed(1)}` : `- ${Math.abs(b/10).toFixed(1)}`}y`;
+            const eq1Str = `${lhs1} = ${formatDecimal(cVal)}`;
 
             const f = d * x + e * y;
-            const eq2Str = `${formatTerm(d, "x", true)} ${formatTerm(e, "y")} = ${f}`;
+            const eq2Str = `${linExpr([[d, "x"], [e, "y"]])} = ${f}`;
 
             eq1 = eq1Str;
             eq2 = eq2Str;
 
-            const eq1IntegerStr = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} = ${a * x + b * y}`;
+            const eq1IntegerStr = `${linExpr([[a, "x"], [b, "y"]])} = ${a * x + b * y}`;
 
             hints = [
                 `小数がある式（上の式）の両辺を <b>10倍</b> して、整数だけの式に直そう！<br>\\(${eq1Str}\\) のすべての項を10倍するとどうなるかな？`,
@@ -367,7 +401,7 @@ const QuestionGenerator = {
 
             explanation = `<b>【解き方の手順】</b><br>` +
                 `1. 小数を含む上の式の両辺に <b>10</b> を掛けて整数にします。<br>` +
-                `　　\\((${eq1Str}) \\times 10 = ${cVal.toFixed(1)} \\times 10\\)<br>` +
+                `　　\\((${lhs1}) \\times 10 = ${formatDecimal(cVal)} \\times 10\\)<br>` +
                 `　　\\(${eq1IntegerStr}\\) ── ①'<br><br>` +
                 `2. 整数になった連立方程式を解きます。<br>` +
                 `　　\\(\\begin{cases} ${eq1IntegerStr} ── ①' \\\\ ${eq2Str} ── ② \\end{cases}\\)<br>` +
@@ -420,8 +454,8 @@ const QuestionGenerator = {
             const c = a + y;
             const d = b - x;
 
-            const termAStr = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")}`;
-            const termBStr = `${formatTerm(c, "x", true)} ${formatTerm(d, "y")}`;
+            const termAStr = linExpr([[a, "x"], [b, "y"]]);
+            const termBStr = linExpr([[c, "x"], [d, "y"]]);
             equationLatex = `${termAStr} = ${termBStr} = ${eVal}`;
 
             hints = [
@@ -467,15 +501,15 @@ const QuestionGenerator = {
             }
             const i = vVal - (g * x + h * y);
 
-            const termAStr = `${formatTerm(a, "x", true)} ${formatTerm(b, "y")} ${c !== 0 ? (c > 0 ? `+ ${c}` : `- ${Math.abs(c)}`) : ""}`;
-            const termBStr = `${formatTerm(d, "x", true)} ${formatTerm(e, "y")} ${f !== 0 ? (f > 0 ? `+ ${f}` : `- ${Math.abs(f)}`) : ""}`;
-            const termCStr = `${formatTerm(g, "x", true)} ${formatTerm(h, "y")} ${i !== 0 ? (i > 0 ? `+ ${i}` : `- ${Math.abs(i)}`) : ""}`;
+            const termAStr = linExpr([[a, "x"], [b, "y"], [c, ""]]);
+            const termBStr = linExpr([[d, "x"], [e, "y"], [f, ""]]);
+            const termCStr = linExpr([[g, "x"], [h, "y"], [i, ""]]);
 
             equationLatex = `${termAStr} = ${termBStr} = ${termCStr}`;
 
             // 連立方程式の組み合わせ例 (A = B と B = C に分ける)
-            const eq1Str = `${formatTerm(a - d, "x", true)} ${formatTerm(b - e, "y")} = ${f - c}`;
-            const eq2Str = `${formatTerm(d - g, "x", true)} ${formatTerm(e - h, "y")} = ${i - f}`;
+            const eq1Str = `${linExpr([[a - d, "x"], [b - e, "y"]])} = ${f - c}`;
+            const eq2Str = `${linExpr([[d - g, "x"], [e - h, "y"]])} = ${i - f}`;
 
             hints = [
                 `3つとも式になっている \\(A = B = C\\) は、好きな組み合わせで2つの等式を作ろう！<br>例えば、<b>「(左) = (真ん中)」</b> と <b>「(真ん中) = (右)」</b> の2つにするのが王道だよ。`,

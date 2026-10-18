@@ -3,6 +3,81 @@
  * アプリ制御ロジック (main.js)
  */
 
+// ==================== 採点（DOM にさわらない。回帰テストからも呼ぶ） ====================
+// 採点は部品 GraderCore（grader-core.js）に任せる。正解は questions.js の answers.x / answers.y（整数の文字列）。
+// x の欄は「x=2」も読む（lhs）。x の欄に「y=…」は×。2欄の悪い方を1問の結果にする（片方が×なら×）。
+// 欄の先頭に書いた「x=」「y=」を外す（表示用と、「x=」だけの欄を空欄として扱うため）
+function stripLetter(raw, letter) {
+    const re = letter === "x" ? /^\s*[xXｘＸ]\s*[=＝]\s*/ : /^\s*[yYｙＹ]\s*[=＝]\s*/;
+    return String(raw == null ? "" : raw).replace(re, "");
+}
+// 空欄・空の枠・「x=」だけの欄なら true（採点せず書き直しを促す）
+function isBlankField(raw, letter) {
+    const v = stripLetter(raw, letter);
+    return GraderCore.isBlank(v) || GraderCore.hasEmptySlot(v);
+}
+function gradeAnswer(q, raws) {
+    const rawX = raws && raws[0], rawY = raws && raws[1];
+    // 空欄・空の枠・「x=」だけの欄は、片方だけでも採点しない（書き直しを促す）
+    if (isBlankField(rawX, "x") || isBlankField(rawY, "y")) return { status: "empty", reason: "empty" };
+    const rx = GraderCore.gradeNumber(rawX, String(q.answers.x), { lhs: "x" });
+    const ry = GraderCore.gradeNumber(rawY, String(q.answers.y), { lhs: "y" });
+    const r = GraderCore.worst([rx, ry]);
+    r.parts = [rx, ry];
+    return r;
+}
+const APP_MESSAGES = {
+    expression: "計算を最後までして、1つの数で答えよう",
+    otherLetter: "x の欄には x の値、y の欄には y の値を書こう"
+};
+// ×・△のときに出す一言（未約分・符号2つは方針どおり一言なし）
+function gradeMessage(r) {
+    if (!r || r.status === "correct") return "";
+    const core = GraderCore.message(r);
+    if (core) return core;
+    const parts = r.parts || [];
+    for (let i = 0; i < parts.length; i++) {
+        if (APP_MESSAGES[parts[i].reason]) return APP_MESSAGES[parts[i].reason];
+    }
+    return "";
+}
+// MathJax が知らない MathLive の命令をそろえ、HTML として危ない文字を逃がす（生の LaTeX を画面に漏らさない）
+function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function cleanLatex(s) {
+    return escapeHtml(String(s == null ? "" : s).replace(/\\dfrac/g, "\\frac").replace(/\\mleft/g, "\\left").replace(/\\mright/g, "\\right")
+        .replace(/\\placeholder\{[^{}]*\}/g, "\\square")
+        .replace(/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)/g, "\\frac{$1}{$2}"));
+}
+
+// 仮想キーボード（タッチ端末）の ⏎ は keydown ではなく beforeinput（inputType: insertLineBreak）で届く。
+// キーボードの Enter（keydown）は部品の onEnter が受けて既定の動きを止めるので、⏎ と二重にならないよう時刻でも確かめる。
+function bindVirtualEnter(mf, fn) {
+    let lastKey = 0;
+    mf.addEventListener("keydown", (e) => { if (e.key === "Enter") lastKey = Date.now(); }, true);
+    mf.addEventListener("beforeinput", (e) => {
+        if (e.inputType !== "insertLineBreak") return;
+        e.preventDefault();
+        if (Date.now() - lastKey < 400) return;
+        fn();
+    });
+}
+// 問題を締め切ったら仮想キーボードを閉じる（「つぎの問題へ」を隠さないように）
+function closeVirtualKeyboard() {
+    try { if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.hide(); } catch (e) { /* 何もしない */ }
+    const a = document.activeElement;
+    if (a && a.tagName === "MATH-FIELD") { try { a.blur(); } catch (e) { /* 何もしない */ } }
+}
+
+// 欄にフォーカスする。MathLive 0.98.4 は、締め切り（無効化）のあとも中で「フォーカス中」のままになることがあり、
+// そのときは focus() が何もしないので、欄の中の入力の受け口（keyboard-sink）に直接フォーカスする
+function focusField(mf) {
+    if (!mf) return;
+    try { mf.focus(); } catch (e) { /* 何もしない */ }
+    if (document.activeElement === mf) return;
+    const sink = mf.shadowRoot && mf.shadowRoot.querySelector(".ML__keyboard-sink, textarea");
+    if (sink) { try { sink.focus({ preventScroll: true }); } catch (e) { /* 何もしない */ } }
+}
+
 class App {
     constructor() {
         // ゲーム状態
@@ -15,6 +90,11 @@ class App {
         
         // UI・入力状態
         this.activeInput = "x"; // 現在フォーカスしている入力欄 ("x" または "y")
+        this.isAnswered = false; // 今の問題の答え合わせ（ギブアップを含む）が済んだか。二重採点を防ぐ
+        this.noteTimer = null;
+        this.nextReadyAt = 0;      // 採点・ギブアップの直後は「つぎの問題へ」を押せない時刻（連打で結果を読まずに進まないように）
+        this.giveUpArmedUntil = 0; // 「答えをみる」の2回目の確認を受け付ける期限
+        this.giveUpArmedAt = 0;    // 1回目を押した時刻
         this.currentHintsShown = 0;
         
         // localStorage フォールバック用メモリ変数
@@ -39,6 +119,7 @@ class App {
 
         // MathLive の全角・半角強制設定の適用
         this.setupMathLiveFields();
+        this.setupEnterToNext();
 
         // 手書き計算スペースの初期化
         this.initScratchpad();
@@ -215,52 +296,58 @@ class App {
     // MathLive 設定と Chromebook 半角入力の強制
     // ----------------------------------------------------
     setupMathLiveFields() {
-        const fields = ["mf-x", "mf-y"];
-        fields.forEach(id => {
-            const mf = document.getElementById(id);
+        // 入力の値は書き換えない（compositionend で欄を書き換えると、「－」ボタンのあと IME で確定した数字で負号が消える）。
+        // 全角・半角は採点のときに部品がそろえる。欄は固定なので setupMathField は起動時（init）に1回だけ呼ぶ。
+        const mfx = document.getElementById("mf-x");
+        const mfy = document.getElementById("mf-y");
+        [mfx, mfy].forEach(mf => {
             if (!mf) return;
-
-            // 半角モード属性
-            mf.setAttribute('inputmode', 'latin');
-
-            // 日本語変換 (IME) 終了時の半角自動変換
-            mf.addEventListener('compositionend', (ev) => {
-                const data = ev.data;
-                if (data) {
-                    const converted = data
-                        .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-                        .replace(/[ａ-ｚ]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-                        .replace(/[Ａ-Ｚ]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-                        .replace(/[＋]/g, '+').replace(/[－ー−]/g, '-')
-                        .replace(/[×]/g, '\\times ').replace(/[÷]/g, '\\div ')
-                        .replace(/[＝]/g, '=').replace(/[（]/g, '(').replace(/[）]/g, ')')
-                        .replace(/[＜]/g, '<').replace(/[＞]/g, '>');
-                    mf.value = '';
-                    mf.insert(converted);
-                }
-            });
-
-            // フォーカス時にも hidden textarea へアクセスして半角化
+            const id = mf.id;
             mf.addEventListener('focus', () => {
                 this.activeInput = id === "mf-x" ? "x" : "y";
-                
                 // 親のコンテナフォーカススタイル用
                 document.getElementById(`container-mf-x`).classList.remove("focus");
                 document.getElementById(`container-mf-y`).classList.remove("focus");
                 document.getElementById(`container-mf-${this.activeInput}`).classList.add("focus");
-
-                mf.setAttribute('inputmode', 'latin');
-                const shadow = mf.shadowRoot;
-                if (shadow) {
-                    const textarea = shadow.querySelector('textarea');
-                    if (textarea) {
-                        textarea.setAttribute('inputmode', 'latin');
-                        textarea.setAttribute('autocorrect', 'off');
-                        textarea.setAttribute('lang', 'en');
-                    }
-                }
             });
+            const onEnter = () => {
+                // 答え合わせ済みなら、判定の画面が出ていれば次の問題へ（ギブアップで答えを見せている間は何もしない）
+                if (this.isAnswered) {
+                    if (document.getElementById("judge-overlay").classList.contains("active")) this.nextQuestion();
+                    return;
+                }
+                // x で Enter → y が空なら y へ、y で Enter → x が空なら x へ、両方あれば決定
+                if (mf === mfx && isBlankField(mfy.value, "y")) focusField(mfy);
+                else if (mf === mfy && isBlankField(mfx.value, "x")) focusField(mfx);
+                else this.submitAnswer();
+            };
+            GraderCore.setupMathField(mf, { onEnter });
+            bindVirtualEnter(mf, onEnter);
+            // タッチ端末では欄をタップすると仮想キーボードが出るように（物理キーボードでは出ない）
+            mf.setAttribute("math-virtual-keyboard-policy", "auto");
+            try { mf.mathVirtualKeyboardPolicy = "auto"; } catch (e) { /* 定義前でも属性で効く */ }
         });
+    }
+
+    // 採点後の Enter で「つぎの問題へ」（欄は採点後に使えなくなるので、ページ全体で受ける。ボタンはボタン自身が受ける）
+    setupEnterToNext() {
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+            const t = e.target;
+            if (t && (t.tagName === "MATH-FIELD" || t.tagName === "BUTTON" || t.tagName === "INPUT")) return;
+            if (document.getElementById("judge-overlay").classList.contains("active")) { e.preventDefault(); this.nextQuestion(); }
+        });
+    }
+
+    // 入力の案内を一時的に差し替える（空欄のときなど）
+    flashNotice(msg) {
+        const note = document.querySelector(".input-notice");
+        if (!note) return;
+        if (note.dataset.orig === undefined) note.dataset.orig = note.textContent;
+        note.textContent = msg;
+        note.classList.add("is-alert");
+        clearTimeout(this.noteTimer);
+        this.noteTimer = setTimeout(() => { note.textContent = note.dataset.orig; note.classList.remove("is-alert"); }, 1800);
     }
 
     // ----------------------------------------------------
@@ -315,6 +402,13 @@ class App {
         mfy.value = "";
         mfx.removeAttribute("disabled");
         mfy.removeAttribute("disabled");
+        this.isAnswered = false;
+        this.giveUpArmedUntil = 0;
+        clearTimeout(this.giveUpTimer);
+        const hintBtn = document.getElementById("btn-show-hint");
+        if (hintBtn) hintBtn.classList.remove("is-armed");
+        const btnSubmit = document.getElementById("btn-submit-answer");
+        if (btnSubmit) btnSubmit.removeAttribute("disabled");
 
         // ヒントの初期化
         this.currentHintsShown = 0;
@@ -327,7 +421,8 @@ class App {
         this.safeTypeset(() => {
             // 描画完了後にxの入力欄にフォーカスをあてる
             setTimeout(() => {
-                mfx.focus();
+                if (this.questions[this.currentIndex] !== q) return;
+                focusField(mfx);
                 this.activeInput = "x";
                 document.getElementById(`container-mf-x`).classList.add("focus");
                 document.getElementById(`container-mf-y`).classList.remove("focus");
@@ -367,40 +462,59 @@ class App {
     // ----------------------------------------------------
     // 正誤判定 & 途中式解説
     // ----------------------------------------------------
+    // 「決定」ボタン・Enter から呼ばれる。ギブアップは採点を通さず finishQuestion を直接呼ぶ
     submitAnswer() {
+        if (this.isAnswered) return; // 答え合わせ済み・ギブアップ中は採点しない（二重採点・二重記録を防ぐ）
         const q = this.questions[this.currentIndex];
+        if (!q || q.isGaveUp) return;
         const rawAnsX = document.getElementById("mf-x").value;
         const rawAnsY = document.getElementById("mf-y").value;
+        const r = gradeAnswer(q, [rawAnsX, rawAnsY]);
 
-        // ギブアップ判定
-        const isGaveUp = !!q.isGaveUp;
+        // 空欄・空の枠は採点しない（問題は締め切らない）
+        if (r.status === "empty") {
+            this.flashNotice("x と y の両方の値を入力してね");
+            const blankX = isBlankField(rawAnsX, "x");
+            focusField(document.getElementById(blankX ? "mf-x" : "mf-y"));
+            return;
+        }
+        this.finishQuestion(q, r, rawAnsX, rawAnsY);
+    }
 
-        // 正規化
-        const normAnsX = this.normalizeLatex(rawAnsX);
-        const normAnsY = this.normalizeLatex(rawAnsY);
-        const normCorrectX = this.normalizeLatex(q.answers.x);
-        const normCorrectY = this.normalizeLatex(q.answers.y);
-
-        // ギブアップ時は無条件で不正解
-        const isCorrect = !isGaveUp && (normAnsX === normCorrectX) && (normAnsY === normCorrectY);
+    // 1問を締め切る。r: 採点結果（ギブアップのときは null）
+    finishQuestion(q, r, rawAnsX, rawAnsY) {
+        this.isAnswered = true;
+        this.nextReadyAt = Date.now() + 400;
+        closeVirtualKeyboard();
+        const isGaveUp = !r;
+        const status = isGaveUp ? "wrong" : r.status;
+        const isCorrect = status === "correct";
+        const isTriangle = status === "negDenominator";
+        const btnSubmit = document.getElementById("btn-submit-answer");
+        if (btnSubmit) btnSubmit.setAttribute("disabled", "true");
+        document.getElementById("mf-x").setAttribute("disabled", "true");
+        document.getElementById("mf-y").setAttribute("disabled", "true");
 
         // 振り返り用に記録
         if (isGaveUp) {
-            q.userAnswer = { x: "未回答", y: "未回答" };
+            q.userAnswer = q.giveUpTyped ? { x: q.giveUpTyped.x, y: q.giveUpTyped.y } : { x: "未回答", y: "未回答" };
         } else {
             q.userAnswer = { x: rawAnsX, y: rawAnsY };
         }
         q.isUserCorrect = isCorrect;
+        q.userStatus = status;
 
         // 判定オーバーレイの要素取得
         const overlay = document.getElementById("judge-overlay");
         const mark = document.getElementById("judge-mark");
         const msg = document.getElementById("judge-message");
         const expArea = document.getElementById("incorrect-explanation");
+        const gradeMsgEl = document.getElementById("judge-grade-msg");
 
         // 表示の初期化
         mark.className = "judge-mark";
         expArea.style.display = "none";
+        if (gradeMsgEl) { gradeMsgEl.textContent = ""; gradeMsgEl.style.display = "none"; }
 
         if (isCorrect) {
             // 正解
@@ -415,15 +529,22 @@ class App {
             // 次へボタンにフォーカス
             document.getElementById("btn-next-question").focus();
         } else {
-            // 不正解
-            mark.classList.add("incorrect");
+            // △（0点）・不正解：どちらもこの問題は締め切り、正しい答えを見せて復習へ
             if (isGaveUp) {
+                mark.classList.add("incorrect");
                 msg.innerText = "ギブアップ（不正解）";
                 msg.style.color = "var(--warning)";
+            } else if (isTriangle) {
+                mark.classList.add("partial");
+                msg.innerText = "おしい！（△・0点）";
+                msg.style.color = "var(--warning)";
             } else {
-                msg.innerText = "おしい！ 計算を見直そう";
+                mark.classList.add("incorrect");
+                msg.innerText = "ざんねん… 不正解";
                 msg.style.color = "var(--error)";
             }
+            const oneLine = isGaveUp ? "" : gradeMessage(r);
+            if (gradeMsgEl && oneLine) { gradeMsgEl.textContent = oneLine; gradeMsgEl.style.display = "block"; }
 
             // 通常時は復習リストへ、復習中は正解するまで出題列の末尾へ戻す。
             if (!this.isReviewMode) {
@@ -434,9 +555,11 @@ class App {
 
             // 誤答解説の描画
             if (isGaveUp) {
-                document.getElementById("exp-your-ans").innerHTML = `未回答（ギブアップ）`;
+                document.getElementById("exp-your-ans").innerHTML = q.giveUpTyped
+                    ? `\\(x = ${cleanLatex(stripLetter(q.giveUpTyped.x, "x")) || "?"}\\), \\(y = ${cleanLatex(stripLetter(q.giveUpTyped.y, "y")) || "?"}\\)（ギブアップ）`
+                    : `未回答（ギブアップ）`;
             } else {
-                document.getElementById("exp-your-ans").innerHTML = `\\(x = ${rawAnsX !== "" ? rawAnsX : "?"}\\), \\(y = ${rawAnsY !== "" ? rawAnsY : "?"}\\)`;
+                document.getElementById("exp-your-ans").innerHTML = `\\(x = ${cleanLatex(stripLetter(rawAnsX, "x"))}\\), \\(y = ${cleanLatex(stripLetter(rawAnsY, "y"))}\\)`;
             }
             document.getElementById("exp-correct-ans").innerHTML = `\\(x = ${q.displayAnswers.x}\\), \\(y = ${q.displayAnswers.y}\\)`;
             document.getElementById("exp-details").innerHTML = q.explanation;
@@ -444,8 +567,10 @@ class App {
 
             this.playIncorrectSound();
 
-            // 解説の中に含まれる LaTeX 数式の再描画
+            // 解説の中に含まれる LaTeX 数式の再描画（描き終わるまでに次の問題へ進んでいたら、ボタンにフォーカスを戻さない）
             this.safeTypeset(() => {
+                if (this.questions[this.currentIndex] !== q) return;
+                if (!document.getElementById("judge-overlay").classList.contains("active")) return;
                 document.getElementById("btn-next-question").focus();
             });
         }
@@ -455,6 +580,9 @@ class App {
     }
 
     nextQuestion() {
+        // 判定の画面が出ているときだけ進む（「つぎの問題へ」の連打で問題が飛ばないように）
+        if (!document.getElementById("judge-overlay").classList.contains("active")) return;
+        if (Date.now() < this.nextReadyAt) return; // 採点の直後は少し待つ
         this.currentIndex++;
         if (this.currentIndex < this.questions.length) {
             this.loadQuestion();
@@ -470,15 +598,29 @@ class App {
     showHint() {
         const q = this.questions[this.currentIndex];
         
-        // すでに最後のヒント（答え）が表示されている、または入力無効時は何もしない
-        if (this.currentHintsShown >= 3) return;
+        // すでに最後のヒント（答え）が表示されている、または答え合わせ済みなら何もしない
+        if (this.currentHintsShown >= 3 || this.isAnswered) return;
 
         if (this.currentHintsShown === 2) {
-            // 次を表示すると「答え」になる場合の警告
-            if (confirm("⚠️ 注意：次のヒントを表示すると「答え」が表示されて、この問題は不正解（ギブアップ）になるよ。本当に表示する？")) {
-                this.currentHintsShown = 3;
-                this.applyGiveUp(q);
+            // 次を表示すると「答え」になる。ボタンをもう一度押したら答えを出す（confirm の代わりに画面の中で確かめる）
+            const btnHint = document.getElementById("btn-show-hint");
+            if (Date.now() > this.giveUpArmedUntil) {
+                this.giveUpArmedUntil = Date.now() + 5000;
+                this.giveUpArmedAt = Date.now();
+                btnHint.innerText = "もう一度押すと答えが出るよ（不正解になります）";
+                btnHint.classList.add("is-armed");
+                clearTimeout(this.giveUpTimer);
+                this.giveUpTimer = setTimeout(() => {
+                    if (this.currentHintsShown === 2 && !this.isAnswered) { btnHint.innerText = "最後のヒント（答え）をみる"; btnHint.classList.remove("is-armed"); }
+                }, 5000);
+                return;
             }
+            // ダブルクリックで確定しないよう、1回目から 600ms は2回目を受け付けない
+            if (Date.now() - this.giveUpArmedAt < 600) return;
+            this.giveUpArmedUntil = 0;
+            btnHint.classList.remove("is-armed");
+            this.currentHintsShown = 3;
+            this.applyGiveUp(q);
         } else {
             this.currentHintsShown++;
         }
@@ -487,10 +629,18 @@ class App {
     }
 
     applyGiveUp(q) {
-        // ギブアップフラグを問題オブジェクトに設定
+        // ギブアップフラグを問題オブジェクトに設定し、この問題を締め切る（以後「決定」・Enter では採点しない）
         q.isGaveUp = true;
+        this.isAnswered = true;
+        // ギブアップでも、何か書いてあればその答えを「あなたの解答」に残す（欄には答えを入れて見せるので先に控える）
+        const typedX = document.getElementById("mf-x").value, typedY = document.getElementById("mf-y").value;
+        q.giveUpTyped = (!GraderCore.isBlank(stripLetter(typedX, "x")) || !GraderCore.isBlank(stripLetter(typedY, "y"))) ? { x: typedX, y: typedY } : null;
+        this.nextReadyAt = Date.now() + 1600; // 答えを見せてから締め切るまで（1.2秒）＋少し
+        closeVirtualKeyboard();
+        const btnSubmit = document.getElementById("btn-submit-answer");
+        if (btnSubmit) btnSubmit.setAttribute("disabled", "true");
 
-        // 入力欄を無効にして答えを代入
+        // 入力欄を無効にして答えを見せる
         const mfx = document.getElementById("mf-x");
         const mfy = document.getElementById("mf-y");
         
@@ -500,9 +650,11 @@ class App {
         mfx.setAttribute("disabled", "true");
         mfy.setAttribute("disabled", "true");
 
-        // 自動的に決定処理へ
+        // 少し見せてから、採点を通さずにギブアップで締め切る（待つ間に中断・次の問題へ進んだら何もしない）
         setTimeout(() => {
-            this.submitAnswer();
+            if (this.questions[this.currentIndex] !== q) return;
+            if (!document.getElementById("screen-drill").classList.contains("active")) return;
+            this.finishQuestion(q, null);
         }, 1200);
     }
 
@@ -638,16 +790,20 @@ class App {
             const tr = document.createElement("tr");
 
             let ansStr = "";
-            if (q.isGaveUp) {
-                ansStr = "未回答 (ギブアップ)";
+            if (q.isGaveUp && q.giveUpTyped) {
+                ansStr = `x = ${cleanLatex(stripLetter(q.giveUpTyped.x, "x")) || "?"}, \\ y = ${cleanLatex(stripLetter(q.giveUpTyped.y, "y")) || "?"} \\ \\text{(ギブアップ)}`;
+            } else if (q.isGaveUp) {
+                ansStr = "\\text{未回答 (ギブアップ)}";
             } else {
                 const ansX = q.userAnswer ? q.userAnswer.x : "";
                 const ansY = q.userAnswer ? q.userAnswer.y : "";
-                ansStr = ansX !== "" || ansY !== "" ? `x = ${ansX}, y = ${ansY}` : "未回答";
+                ansStr = ansX !== "" || ansY !== "" ? `x = ${cleanLatex(stripLetter(ansX, "x"))}, \\ y = ${cleanLatex(stripLetter(ansY, "y"))}` : "\\text{未回答}";
             }
 
             const correctStr = `x = ${q.displayAnswers.x}, y = ${q.displayAnswers.y}`;
-            const resMark = q.isUserCorrect ? `<span style="color:var(--success);">💮</span>` : `<span style="color:var(--error);">❌</span>`;
+            const resMark = q.isUserCorrect ? `<span style="color:var(--success);">💮</span>`
+                : q.userStatus === "negDenominator" ? `<span style="color:var(--warning);">△</span>`
+                : `<span style="color:var(--error);">❌</span>`;
 
             tr.innerHTML = `
                 <td>${idx + 1}</td>
@@ -744,31 +900,6 @@ class App {
         } catch (e) {
             console.warn("紙吹雪ライブラリの呼び出しに失敗しました:", e);
         }
-    }
-
-    // MathLive 出力の正規化 (表記揺れ吸収)
-    normalizeLatex(latex) {
-        if (!latex) return '';
-        let s = latex.replace(/\s+/g, ''); // 空白を削除
-        
-        // 不要なコマンドの削除
-        s = s.replace(/\\left|\\right|\\mleft|\\mright|\\,|\\cdot|\\operatorname/g, '');
-        
-        // 記号の統一
-        s = s.replace(/\\pm/g, '±')
-             .replace(/\\lt/g, '<').replace(/\\gt/g, '>')
-             .replace(/\\le/g, '≤').replace(/\\ge/g, '≥');
-        
-        // ブレースの省略を補完
-        s = s.replace(/\\frac([^{])([^{])/g, '\\frac{$1}{$2}');
-        s = s.replace(/\\frac{([^{])}([^{])/g, '\\frac{$1}{$2}');
-        s = s.replace(/\\frac([^{]){([^{]+)}/g, '\\frac{$1}{$2}');
-        
-        // 負の分数の表記揺れ ( -\frac{a}{b} と \frac{-a}{b} の統一 )
-        s = s.replace(/-\\frac{([^}]+)}{([^}]+)}/g, '\\frac{-$1}{$2}');
-        
-        s = s.replace(/\^([^{])/g, '^{$1}');
-        return s;
     }
 
     // ----------------------------------------------------

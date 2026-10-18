@@ -1214,3 +1214,89 @@ math-field::part(menu-toggle) {
     opacity: 1;
     transition: 0s;
 }
+
+/* ===== 採点の直し（2026-10-18）: △（0点）・一言・空欄の案内・締め切り後の決定ボタン ===== */
+.judge-mark.partial::before {
+    content: "△";
+    color: var(--warning);
+    font-weight: 900;
+    animation: shake 0.4s ease-in-out forwards;
+}
+.judge-grade-msg {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fde68a;
+    text-align: center;
+    margin: -12px 0 14px;
+}
+.answer-box-compact .input-notice.is-alert {
+    color: var(--error, #f43f5e);
+    font-weight: 700;
+}
+.minimal-keyboard .key-btn.key-submit[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* 「答えをみる」の2回目の確認待ち */
+.btn-hint.is-armed {
+    background: var(--warning);
+    color: #1f2937;
+}
+
+/* 幅の狭い画面（スマホ・縦向き）: 問題と答えの帯を縦に積み、作業エリアも縦に並べる */
+@media (max-width: 600px) {
+    .question-answer-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
+    .question-box-compact { flex-direction: column; gap: 6px; }
+    .question-answer-bar .math-display { font-size: 1.2rem; }
+    .answer-box-compact { border-left: none; padding-left: 0; border-top: 1px solid var(--panel-border); padding-top: 8px; }
+    .answer-box-compact .answer-row-layout { gap: 10px; }
+    .answer-box-compact .math-field-container { width: 100px; }
+    .workspace-area { flex-direction: column; }
+    .scratchpad-container { min-height: 160px; }
+}
+
+/* コースカードは縮めない（中身が切れないように。入りきらないときはコースの一覧の中だけスクロール） */
+.course-card { flex-shrink: 0; }
+
+/* 低い画面（1024×600・800×600）: スタートと結果を詰めて、1画面に収める */
+@media (max-height: 700px) {
+    .header-logo { margin-bottom: 8px; }
+    .logo-title { font-size: 2.1rem; }
+    .logo-subtitle { font-size: 0.95rem; }
+    .start-main-grid { height: calc(100vh - 120px); gap: 16px; }
+    .section-title { margin-bottom: 8px; font-size: 1.05rem; }
+    .course-list { gap: 8px; }
+    .course-card { padding: 8px 12px; gap: 12px; }
+    .course-icon { width: 44px; height: 44px; font-size: 1.6rem; }
+    .course-name { font-size: 1.02rem; margin: 0 0 2px 0; }
+    .course-desc { font-size: 0.78rem; margin: 0 0 4px 0; line-height: 1.3; }
+
+    .result-card { padding: 14px 20px; max-height: 98%; }
+    .result-header { margin-bottom: 8px; }
+    .result-title { font-size: 1.35rem; margin-top: 4px; }
+    .result-stats { gap: 10px; margin-bottom: 10px; }
+    .stat-box { padding: 6px 8px; border-radius: 12px; }
+    .stat-label { margin-bottom: 0; font-size: 0.72rem; }
+    .stat-value, .stat-value.highlight { font-size: 1.2rem; }
+    .result-actions { gap: 10px; margin-bottom: 10px; }
+    .btn-action { padding: 9px 12px; font-size: 0.95rem; }
+    .review-section { padding: 8px 12px; }
+    .review-title { margin-bottom: 4px; }
+    .review-table th, .review-table td { padding: 4px 8px; }
+}
+
+/* 幅の狭い画面（スマホ・縦向き）: スタートのコースと履歴を縦に積む（コースの一覧は中だけスクロール） */
+@media (max-width: 600px) {
+    .start-main-grid { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+    .history-section { max-height: 26vh; padding: 12px; }
+    .logo-title { font-size: 2rem; }
+}
+
+/* 幅の狭い画面（800×600・1024×600 など）: 長い式（-3x-2(-x-2y)=-25、A=B=C）が答え欄に重ならないよう、問題と答え欄を上下に分ける */
+@media (max-width: 1200px) and (min-width: 601px) {
+    .question-answer-bar { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 16px; }
+    .question-box-compact { gap: 12px; }
+    .question-answer-bar .math-display { font-size: 1.3rem; min-width: 0; overflow-x: auto; }
+    .answer-box-compact { flex-direction: row; justify-content: center; gap: 16px; border-left: none; padding-left: 0; border-top: 1px solid var(--panel-border); padding-top: 6px; }
+}

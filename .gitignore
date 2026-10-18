@@ -11,3 +11,7 @@ credentials*.json
 .claude/
 .codex/
 .npmrc
+
+# 公開しない記録（採点判定テスト・リーガル確認）
+ANSWER_QA.md
+LEGAL_REVIEW.md
